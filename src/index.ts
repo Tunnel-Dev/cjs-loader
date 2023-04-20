@@ -15,6 +15,7 @@ import {
 	createFilesMatcher,
 } from 'get-tsconfig';
 import type { TransformOptions } from 'esbuild';
+import { isFileEsmSync } from 'is-file-esm-ts';
 
 const isPathPattern = /^\.{0,2}\//;
 const isTsFilePatten = /\.[cm]?tsx?$/;
@@ -52,14 +53,25 @@ function transformer(
 	/**
 	 * For tracking dependencies in watch mode
 	 */
-	if (process.send) {
-		process.send({
-			type: 'dependency',
-			path: filePath,
-		});
-	}
+	// Commented out because `process.send` causes this error: https://github.com/facebook/jest/issues/10733
+	// if (process.send) {
+	// 	process.send({
+	//		type: 'dependency',
+	//		path: filePath,
+	//	});
+	// }
 
 	let code = fs.readFileSync(filePath, 'utf8');
+	if (filePath.includes(nodeModulesPath)) {
+		// Transpile packages that are ESM-only (this is only done from the CommonJS loader)
+		if (isFileEsmSync(filePath)) {
+			const transformed = transformSync(code, filePath, { format: 'cjs' });
+			code = applySourceMap(transformed, filePath);
+		}
+		
+		module._compile(code, filePath);
+		return;
+	}
 
 	if (filePath.endsWith('.cjs') && nodeSupportsImport) {
 		const transformed = transformDynamicImport(filePath, code);
